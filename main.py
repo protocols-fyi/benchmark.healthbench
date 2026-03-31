@@ -155,7 +155,7 @@ async def run_case(
         for logger_name in NOISY_LOGGERS:
             logging.getLogger(logger_name).setLevel(logging.WARNING)
         logger.info(
-            "Running benchmark on AWS Bedrock | model=%s | concurrency=1",
+            "Running benchmark on AWS Bedrock | model=%s | concurrency=4",
             AWS_BEDROCK_SUPPORTED_MODEL_IDS[model_name],
         )
         run_experiment_id = f"{experiment_id}-{model_name}"
@@ -166,7 +166,7 @@ async def run_case(
     elif is_azure_openai:
         assert model_name is not None
         logger.info(
-            "Running benchmark on Azure OpenAI | model=%s | concurrency=1",
+            "Running benchmark on Azure OpenAI | model=%s | concurrency=4",
             model_name,
         )
         run_experiment_id = f"{experiment_id}-{model_name}"
