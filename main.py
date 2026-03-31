@@ -25,19 +25,11 @@ import click
 from config import (
     AWS_BEDROCK_SUPPORTED_MODEL_IDS,
     DEFAULT_BASE_MODEL,
-    DEFAULT_GENERATION_TIMEOUT_SECONDS,
     DEFAULT_ROLLOUT_COUNT,
     DEFAULT_UNSLOTH_VLLM_STANDBY,
     DEFAULT_VLLM_BASE_URL,
     DEFAULT_VLLM_COMPLETION_TOKEN_LIMIT,
-    DEFAULT_VLLM_ENABLE_THINKING,
-    DEFAULT_VLLM_GPU_MEMORY_UTILIZATION,
-    DEFAULT_VLLM_HOST,
-    DEFAULT_VLLM_KV_CACHE_DTYPE,
-    DEFAULT_VLLM_MAX_SEQ_LENGTH,
     DEFAULT_VLLM_PRESENCE_PENALTY,
-    DEFAULT_VLLM_PORT,
-    DEFAULT_VLLM_STARTUP_TIMEOUT_SECONDS,
     DEFAULT_VLLM_TEMPERATURE,
     DEFAULT_VLLM_TOP_P,
     NOISY_LOGGERS,
@@ -46,7 +38,6 @@ from config import (
     VLLM_STANDBY_ENV_KEY,
 )
 from entities import (
-    BenchmarkRuntime,
     TargetModel,
     dump_json_value,
 )
@@ -56,8 +47,6 @@ from models.openai import (
 )
 from rollout import load_cases, run_rollouts
 from models.qwen import (
-    VllmEngineConfig,
-    VllmSamplingParams,
     ensure_vllm_server,
 )
 from utils import init_logging
@@ -75,8 +64,7 @@ SUPPORTED_NAMED_MODEL_IDS = (
 MODEL_OPTION_HELP = (
     "Target model to benchmark. Supported named targets: "
     f"{', '.join(SUPPORTED_NAMED_MODEL_IDS)}. "
-    f"Use '{ALL_MODEL_OPTION}' to benchmark each named target concurrently "
-    "where safe. Local vLLM targets remain serialized. "
+    f"Use '{ALL_MODEL_OPTION}' to benchmark each named target sequentially. "
     "For local vLLM runs, you can also pass any Hugging Face model id or "
     "a local model directory."
 )
@@ -94,33 +82,6 @@ def _apply_runtime_env_defaults() -> None:
                 else project_bin
             )
     os.environ.setdefault(VLLM_STANDBY_ENV_KEY, DEFAULT_UNSLOTH_VLLM_STANDBY)
-
-
-def _build_benchmark_runtime(
-    *,
-    rollout_count: int | None,
-) -> BenchmarkRuntime:
-    resolved_rollout_size = (
-        DEFAULT_ROLLOUT_COUNT if rollout_count is None else rollout_count
-    )
-    return BenchmarkRuntime(
-        rollout_size=resolved_rollout_size,
-        generation_timeout_seconds=DEFAULT_GENERATION_TIMEOUT_SECONDS,
-        sampling_params=VllmSamplingParams(
-            completion_token_limit=DEFAULT_VLLM_COMPLETION_TOKEN_LIMIT,
-            top_p=DEFAULT_VLLM_TOP_P,
-            temperature=DEFAULT_VLLM_TEMPERATURE,
-            presence_penalty=DEFAULT_VLLM_PRESENCE_PENALTY,
-        ),
-        enable_thinking=DEFAULT_VLLM_ENABLE_THINKING,
-        vllm_engine_config=VllmEngineConfig(
-            max_seq_length=DEFAULT_VLLM_MAX_SEQ_LENGTH,
-            kv_cache_dtype=DEFAULT_VLLM_KV_CACHE_DTYPE,
-            gpu_memory_utilization=DEFAULT_VLLM_GPU_MEMORY_UTILIZATION,
-        ),
-    )
-
-
 def _normalize_requested_model_name(model: str) -> str:
     stripped_model = model.strip()
     normalized_model = stripped_model.lower()
@@ -152,12 +113,6 @@ def _display_model_name(model_name: str | None) -> str:
     return DEFAULT_BASE_MODEL if model_name is None else model_name
 
 
-def _can_run_in_parallel(model_name: str | None) -> bool:
-    return model_name is not None and (
-        model_name.startswith("anthropic-") or is_azure_openai_model(model_name)
-    )
-
-
 async def _run_single_benchmark(
     *,
     case_count: int,
@@ -165,12 +120,13 @@ async def _run_single_benchmark(
     model_name: str | None,
     checkpoint: Path | None,
     repo_root: Path,
-    run_log_path: Path,
     results_db_path: Path,
 ) -> tuple[str, dict[str, list[float]]]:
     is_anthropic = model_name is not None and model_name.startswith("anthropic-")
     is_azure_openai = is_azure_openai_model(model_name)
-    runtime = _build_benchmark_runtime(rollout_count=rollout_count)
+    resolved_rollout_count = (
+        DEFAULT_ROLLOUT_COUNT if rollout_count is None else rollout_count
+    )
     local_checkpoint = None if (is_anthropic or is_azure_openai) else checkpoint
     if local_checkpoint is not None and model_name is not None:
         logger.debug(
@@ -189,19 +145,18 @@ async def _run_single_benchmark(
         )
         else model_name
     )
-    cases, rubric = load_cases(
+    cases = load_cases(
         DATASET_PATH,
         case_count=case_count,
     )
 
     experiment_id = "default"
-    sampling_params = runtime.sampling_params
     request_parameters_json = dump_json_value(
         {
-            "temperature": sampling_params.temperature,
-            "top_p": sampling_params.top_p,
-            "presence_penalty": sampling_params.presence_penalty,
-            "max_tokens": sampling_params.completion_token_limit,
+            "temperature": DEFAULT_VLLM_TEMPERATURE,
+            "top_p": DEFAULT_VLLM_TOP_P,
+            "presence_penalty": DEFAULT_VLLM_PRESENCE_PENALTY,
+            "max_tokens": DEFAULT_VLLM_COMPLETION_TOKEN_LIMIT,
         }
     )
     run_experiment_id = experiment_id
@@ -234,67 +189,32 @@ async def _run_single_benchmark(
             serving_config_json=dump_json_value(azure_openai_serving_config()),
         )
     else:
-        vllm_handle = await ensure_vllm_server(
+        base_url, model_id, base_model_name = await ensure_vllm_server(
             repo_root=repo_root,
             base_model=local_model_name,
             checkpoint=local_checkpoint,
-            engine_config=runtime.vllm_engine_config,
-            host=DEFAULT_VLLM_HOST,
-            requested_port=DEFAULT_VLLM_PORT,
-            startup_timeout_seconds=DEFAULT_VLLM_STARTUP_TIMEOUT_SECONDS,
-            log_path=run_log_path.with_suffix(".vllm.log"),
         )
-        assert vllm_handle.base_url == DEFAULT_VLLM_BASE_URL, (
+        assert base_url == DEFAULT_VLLM_BASE_URL, (
             "Expected vLLM server at "
-            f"{DEFAULT_VLLM_BASE_URL}, got {vllm_handle.base_url}."
+            f"{DEFAULT_VLLM_BASE_URL}, got {base_url}."
         )
         target_model = TargetModel.vllm(
-            model_id=vllm_handle.model_name,
-            base_model_name=vllm_handle.base_model_name,
+            model_id=model_id,
+            base_model_name=base_model_name,
             checkpoint_path=(
                 str(local_checkpoint.expanduser().resolve())
                 if local_checkpoint is not None
                 else None
             ),
             request_parameters_json=request_parameters_json,
-            serving_config_json=dump_json_value({"base_url": vllm_handle.base_url}),
+            serving_config_json=dump_json_value({"base_url": base_url}),
         )
 
     return await run_rollouts(
         experiment_id=run_experiment_id,
         target_model=target_model,
         cases=cases,
-        rubric=rubric,
-        runtime=runtime,
-        results_db_path=results_db_path,
-    )
-
-
-async def _run_benchmark_job(
-    *,
-    job_index: int,
-    job_count: int,
-    case_count: int,
-    rollout_count: int | None,
-    model_name: str | None,
-    checkpoint: Path | None,
-    repo_root: Path,
-    run_log_path: Path,
-    results_db_path: Path,
-) -> tuple[str, dict[str, list[float]]]:
-    logger.info(
-        "Starting benchmark run | run_index=%d/%d | model=%s",
-        job_index,
-        job_count,
-        _display_model_name(model_name),
-    )
-    return await _run_single_benchmark(
-        case_count=case_count,
-        rollout_count=rollout_count,
-        model_name=model_name,
-        checkpoint=checkpoint,
-        repo_root=repo_root,
-        run_log_path=run_log_path,
+        rollout_size=resolved_rollout_count,
         results_db_path=results_db_path,
     )
 
@@ -306,98 +226,38 @@ async def run_benchmark(
     model_names: tuple[str | None, ...],
     checkpoint: Path | None,
     repo_root: Path,
-    run_log_path: Path,
     results_db_path: Path,
 ) -> list[tuple[str, dict[str, list[float]]]]:
     benchmark_jobs = list(enumerate(model_names, start=1))
-    parallel_jobs = [
-        (job_index, model_name)
-        for job_index, model_name in benchmark_jobs
-        if _can_run_in_parallel(model_name)
-    ]
-    serialized_jobs = [
-        (job_index, model_name)
-        for job_index, model_name in benchmark_jobs
-        if not _can_run_in_parallel(model_name)
-    ]
-    collected_results: dict[int, tuple[str, dict[str, list[float]]]] = {}
-    failures: list[str] = []
+    collected_results: list[tuple[str, dict[str, list[float]]]] = []
 
-    if parallel_jobs:
-        logger.info(
-            "Launching parallel benchmark runs | run_count=%d | models=%s",
-            len(parallel_jobs),
-            ", ".join(_display_model_name(model_name) for _, model_name in parallel_jobs),
-        )
-        parallel_results = await asyncio.gather(
-            *[
-                _run_benchmark_job(
-                    job_index=job_index,
-                    job_count=len(model_names),
+    for job_index, model_name in benchmark_jobs:
+        try:
+            logger.info(
+                "Starting benchmark run | run_index=%d/%d | model=%s",
+                job_index,
+                len(model_names),
+                _display_model_name(model_name),
+            )
+            collected_results.append(
+                await _run_single_benchmark(
                     case_count=case_count,
                     rollout_count=rollout_count,
                     model_name=model_name,
                     checkpoint=checkpoint,
                     repo_root=repo_root,
-                    run_log_path=run_log_path,
                     results_db_path=results_db_path,
                 )
-                for job_index, model_name in parallel_jobs
-            ],
-            return_exceptions=True,
-        )
-        for (job_index, _), result in zip(
-            parallel_jobs,
-            parallel_results,
-            strict=True,
-        ):
-            if isinstance(result, BaseException):
-                model_name = benchmark_jobs[job_index - 1][1]
-                logger.exception(
-                    "Parallel benchmark run failed | run_index=%d/%d | model=%s",
-                    job_index,
-                    len(model_names),
-                    _display_model_name(model_name),
-                    exc_info=result,
-                )
-                failures.append(
-                    f"{_display_model_name(model_name)} ({type(result).__name__})"
-                )
-                continue
-            collected_results[job_index] = result
-
-    for job_index, model_name in serialized_jobs:
-        try:
-            collected_results[job_index] = await _run_benchmark_job(
-                job_index=job_index,
-                job_count=len(model_names),
-                case_count=case_count,
-                rollout_count=rollout_count,
-                model_name=model_name,
-                checkpoint=checkpoint,
-                repo_root=repo_root,
-                run_log_path=run_log_path,
-                results_db_path=results_db_path,
             )
         except Exception as error:
             logger.exception(
-                "Serialized benchmark run failed | run_index=%d/%d | model=%s",
+                "Benchmark run failed | run_index=%d/%d | model=%s",
                 job_index,
                 len(model_names),
                 _display_model_name(model_name),
                 exc_info=error,
             )
-            failures.append(
-                f"{_display_model_name(model_name)} ({type(error).__name__})"
-            )
-
-    if failures:
-        failure_count = len(failures)
-        raise RuntimeError(
-            f"{failure_count} benchmark run(s) failed: {', '.join(failures)}"
-        )
-
-    return [collected_results[job_index] for job_index, _ in benchmark_jobs]
+    return collected_results
 
 
 @click.command(context_settings=CLICK_CONTEXT_SETTINGS)
@@ -452,7 +312,7 @@ def cli(
 ) -> None:
     """Run HealthBench rubric benchmark rollouts and persist them to SQLite."""
     _apply_runtime_env_defaults()
-    run_log_path = init_logging(level=logging.DEBUG)
+    init_logging(level=logging.DEBUG)
     requested_models = _resolve_requested_models(model=model, checkpoint=checkpoint)
     asyncio.run(
         run_benchmark(
@@ -461,7 +321,6 @@ def cli(
             model_names=requested_models,
             checkpoint=checkpoint,
             repo_root=PROJECT_ROOT,
-            run_log_path=run_log_path,
             results_db_path=results_db,
         )
     )

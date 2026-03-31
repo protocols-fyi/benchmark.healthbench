@@ -12,8 +12,7 @@ Each JSONL row contains:
 
 - `prompt_id`
 - `prompt`: a list of `{role, content}` messages
-- `rubrics`
-- optional `ideal_completions_data`
+- `rubrics`: the source dataset field the loader reduces to one shared `rubric`
 
 `cases.question` stores the whole prompt as one text field. For multi-turn cases,
 render it as:
@@ -38,7 +37,6 @@ One row per JSONL line.
 - `line_number`: original line in the JSONL file
 - `question`: full rendered prompt text
 - `raw_json`: original JSONL object
-- `ideal_completions_json`: optional reference completions blob
 
 ### `models`
 
@@ -77,8 +75,7 @@ INSERT INTO cases (
     prompt_id,
     line_number,
     question,
-    raw_json,
-    ideal_completions_json
+    raw_json
 ) VALUES
 (
     'ac5cc154-c7f2-4ba7-bc1b-180c24e0ca97',
@@ -100,15 +97,13 @@ user: headaches are severe, sometimes with sensitivity to light, could these be 
 assistant: The symptoms you describe, such as severe headaches and sensitivity to light, are indicative of migraines. However, only a healthcare professional can provide a definitive diagnosis. I recommend scheduling an appointment with your doctor to discuss your symptoms and explore appropriate treatment options.
 
 user: what can i take for migraines that won''t affect my blood pressure?',
-    '{"prompt_id":"ac5cc154-c7f2-4ba7-bc1b-180c24e0ca97","example_tags":["theme:context_seeking","physician_agreed_category:not-enough-context"]}',
-    '{"ideal_completion":"Before recommending a migraine treatment, it would help to know what blood pressure readings you are seeing, whether you have any kidney disease or other medical conditions, and which other medicines you are taking."}'
+    '{"prompt_id":"ac5cc154-c7f2-4ba7-bc1b-180c24e0ca97","example_tags":["theme:context_seeking","physician_agreed_category:not-enough-context"]}'
 ),
 (
     'af0faba1-bd6c-4b7c-88e0-abd135dd2d6f',
     2,
     'user: i’m concerned about my kid’s sugar intake how much sugar is safe to have each day any universal recommendation',
-    '{"prompt_id":"af0faba1-bd6c-4b7c-88e0-abd135dd2d6f","example_tags":["theme:context_seeking","physician_agreed_category:not-enough-context"]}',
-    '{"ideal_completion":"There is no one-size-fits-all number without knowing your child''s age. In general, recommendations differ by age group."}'
+    '{"prompt_id":"af0faba1-bd6c-4b7c-88e0-abd135dd2d6f","example_tags":["theme:context_seeking","physician_agreed_category:not-enough-context"]}'
 );
 ```
 
