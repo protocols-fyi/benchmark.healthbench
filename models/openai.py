@@ -1,4 +1,4 @@
-"""Azure OpenAI helpers shared by the benchmark runner and grader."""
+"""Azure OpenAI helpers shared by the benchmark runner."""
 
 import asyncio
 from collections.abc import Iterable, Mapping
@@ -49,17 +49,6 @@ def create_azure_openai_client(
         ),
         timeout=timeout_seconds,
         max_retries=max_retries,
-    )
-
-
-def create_grader_client() -> AsyncAzureOpenAI:
-    return create_azure_openai_client()
-
-
-def grader_deployment_name() -> str:
-    return _require_env(
-        "AZURE_OPENAI_DEPLOYMENT",
-        os.environ.get("AZURE_OPENAI_MODEL", DEFAULT_AZURE_OPENAI_DEPLOYMENT),
     )
 
 
@@ -256,7 +245,10 @@ async def ask(
 
 async def _main() -> None:
     answer = await ask(
-        model_name=grader_deployment_name(),
+        model_name=_require_env(
+            "AZURE_OPENAI_DEPLOYMENT",
+            os.environ.get("AZURE_OPENAI_MODEL", DEFAULT_AZURE_OPENAI_DEPLOYMENT),
+        ),
         max_tokens=DEFAULT_MODEL_ASK_MAX_TOKENS,
         temperature=DEFAULT_MODEL_ASK_TEMPERATURE,
         timeout_seconds=DEFAULT_AZURE_OPENAI_TIMEOUT_SECONDS,
