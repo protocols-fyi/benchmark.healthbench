@@ -12,7 +12,13 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from models.qwen import ChatMessage, VllmEngineConfig, VllmSamplingParams
+from models.qwen import ChatMessage
+from validation import (
+    normalize_string_tuple,
+    require_non_zero_float,
+    strip_and_require_non_empty,
+    strip_optional_non_empty,
+)
 
 JSON_VALUE_ADAPTER = TypeAdapter(Any)
 
@@ -53,26 +59,27 @@ class Rubric(StrictModel):
 
     @field_validator("criterion")
     @classmethod
-    def validate_criterion(cls, value: str) -> str:
-        value = value.strip()
-        assert value, "rubric criterion must be non-empty."
-        return value
+    def validate_rubric_criterion(cls, value: str) -> str:
+        return strip_and_require_non_empty(
+            value,
+            message="rubric criterion must be non-empty.",
+        )
 
     @field_validator("points")
     @classmethod
-    def validate_points(cls, value: float) -> float:
-        assert value != 0.0, "rubric points must be non-zero."
-        return value
+    def validate_rubric_points(cls, value: float) -> float:
+        return require_non_zero_float(
+            value,
+            message="rubric points must be non-zero.",
+        )
 
     @field_validator("tags", mode="before")
     @classmethod
-    def normalize_tags(cls, value: object) -> tuple[str, ...]:
-        if value is None:
-            return ()
-        assert isinstance(value, Sequence) and not isinstance(value, str), (
-            "rubric tags must be a sequence."
+    def normalize_rubric_tags(cls, value: object) -> tuple[str, ...]:
+        return normalize_string_tuple(
+            value,
+            message="rubric tags must be a sequence.",
         )
-        return tuple(str(tag) for tag in value)
 
 
 class Case(StrictModel):
@@ -88,10 +95,11 @@ class Case(StrictModel):
 
     @field_validator("prompt_id")
     @classmethod
-    def validate_prompt_id(cls, value: str) -> str:
-        value = value.strip()
-        assert value, "prompt_id must be non-empty."
-        return value
+    def validate_case_prompt_id(cls, value: str) -> str:
+        return strip_and_require_non_empty(
+            value,
+            message="prompt_id must be non-empty.",
+        )
 
     @field_validator("prompt")
     @classmethod
@@ -110,13 +118,11 @@ class Case(StrictModel):
 
     @field_validator("case_tags", mode="before")
     @classmethod
-    def normalize_case_tags(cls, value: object) -> tuple[str, ...]:
-        if value is None:
-            return ()
-        assert isinstance(value, Sequence) and not isinstance(value, str), (
-            "case tags must be a sequence."
+    def normalize_case_tags_tuple(cls, value: object) -> tuple[str, ...]:
+        return normalize_string_tuple(
+            value,
+            message="case tags must be a sequence.",
         )
-        return tuple(str(tag) for tag in value)
 
     @field_validator("rubrics")
     @classmethod
@@ -150,28 +156,30 @@ class TargetModel(StrictModel):
         "request_parameters_json",
     )
     @classmethod
-    def validate_required_strings(cls, value: str) -> str:
-        value = value.strip()
-        assert value, "target model fields must be non-empty."
-        return value
+    def validate_target_model_required_strings(cls, value: str) -> str:
+        return strip_and_require_non_empty(
+            value,
+            message="target model fields must be non-empty.",
+        )
 
     @field_validator("vllm_base_model_name")
     @classmethod
-    def validate_optional_vllm_base_model_name(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        value = value.strip()
-        assert value, "vllm_base_model_name must be non-empty when set."
-        return value
+    def validate_target_model_base_name(cls, value: str | None) -> str | None:
+        return strip_optional_non_empty(
+            value,
+            message="vllm_base_model_name must be non-empty when set.",
+        )
 
     @field_validator("checkpoint_path", "serving_config_json")
     @classmethod
-    def validate_optional_strings(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        value = value.strip()
-        assert value, "target model optional string fields must be non-empty when set."
-        return value
+    def validate_target_model_optional_strings(
+        cls,
+        value: str | None,
+    ) -> str | None:
+        return strip_optional_non_empty(
+            value,
+            message="target model optional string fields must be non-empty when set.",
+        )
 
     @model_validator(mode="after")
     def validate_backend_fields(self) -> "TargetModel":
@@ -277,21 +285,8 @@ class RunCaseResult(StrictModel):
         "model_response",
     )
     @classmethod
-    def validate_non_empty_strings(cls, value: str) -> str:
-        value = value.strip()
-        assert value, "run case result string fields must be non-empty."
-        return value
-
-
-class BenchmarkRuntime(StrictModel):
-    rollout_size: int
-    generation_timeout_seconds: int
-    sampling_params: VllmSamplingParams
-    enable_thinking: bool
-    vllm_engine_config: VllmEngineConfig
-
-    @field_validator("rollout_size", "generation_timeout_seconds")
-    @classmethod
-    def validate_positive_ints(cls, value: int) -> int:
-        assert value > 0, "runtime integer fields must be > 0."
-        return value
+    def validate_run_case_result_strings(cls, value: str) -> str:
+        return strip_and_require_non_empty(
+            value,
+            message="run case result string fields must be non-empty.",
+        )
