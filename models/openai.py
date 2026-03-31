@@ -5,13 +5,19 @@ from collections.abc import Iterable, Mapping
 import os
 
 from openai import AsyncAzureOpenAI
-
-DEFAULT_AZURE_OPENAI_API_VERSION = "2024-12-01-preview"
-DEFAULT_AZURE_OPENAI_ENDPOINT = "https://gpt41-endpoint.openai.azure.com/"
-DEFAULT_AZURE_OPENAI_DEPLOYMENT = "gpt-4.1"
-DEFAULT_AZURE_OPENAI_MAX_RETRIES = 3
-DEFAULT_AZURE_OPENAI_TIMEOUT_SECONDS = 20 * 60
-MAIN_QUESTION = "what's the main argument of Sutton's Bitter Lessons?"
+from config import (
+    DEFAULT_AZURE_OPENAI_API_VERSION,
+    DEFAULT_AZURE_OPENAI_DEPLOYMENT,
+    DEFAULT_AZURE_OPENAI_ENDPOINT,
+    DEFAULT_AZURE_OPENAI_MAX_RETRIES,
+    DEFAULT_AZURE_OPENAI_TIMEOUT_SECONDS,
+    DEFAULT_MODEL_ASK_MAX_TOKENS,
+    DEFAULT_MODEL_ASK_QUESTION,
+    DEFAULT_MODEL_ASK_SYSTEM_PROMPT,
+    DEFAULT_MODEL_ASK_TEMPERATURE,
+    DEFAULT_MODEL_ASK_TIMEOUT_SECONDS,
+    DEFAULT_VLLM_PRESENCE_PENALTY,
+)
 
 
 def _require_env(name: str, default: str | None = None) -> str:
@@ -218,9 +224,9 @@ async def ask(
     model_name: str,
     region: str | None = None,
     profile: str | None = None,
-    max_tokens: int = 512,
-    temperature: float = 0.0,
-    timeout_seconds: float = 120.0,
+    max_tokens: int = DEFAULT_MODEL_ASK_MAX_TOKENS,
+    temperature: float = DEFAULT_MODEL_ASK_TEMPERATURE,
+    timeout_seconds: float = DEFAULT_MODEL_ASK_TIMEOUT_SECONDS,
     prompt: str = "",
     messages: list[dict[str, str]] | None = None,
     system_prompt: str = "",
@@ -240,7 +246,7 @@ async def ask(
             max_tokens=max_tokens,
             temperature=temperature,
             top_p=top_p,
-            presence_penalty=0.0,
+            presence_penalty=DEFAULT_VLLM_PRESENCE_PENALTY,
             client=client,
         )
     finally:
@@ -251,11 +257,11 @@ async def ask(
 async def _main() -> None:
     answer = await ask(
         model_name=grader_deployment_name(),
-        max_tokens=512,
-        temperature=0.0,
+        max_tokens=DEFAULT_MODEL_ASK_MAX_TOKENS,
+        temperature=DEFAULT_MODEL_ASK_TEMPERATURE,
         timeout_seconds=DEFAULT_AZURE_OPENAI_TIMEOUT_SECONDS,
-        prompt=MAIN_QUESTION,
-        system_prompt="You are a helpful assistant.",
+        prompt=DEFAULT_MODEL_ASK_QUESTION,
+        system_prompt=DEFAULT_MODEL_ASK_SYSTEM_PROMPT,
     )
     print(answer)
 

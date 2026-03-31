@@ -22,14 +22,20 @@ from pydantic import BaseModel, ConfigDict, TypeAdapter, field_validator, model_
 from config import (
     DEFAULT_BASE_MODEL,
     DEFAULT_GENERATION_TIMEOUT_SECONDS,
+    DEFAULT_MODEL_ASK_MAX_TOKENS,
+    DEFAULT_MODEL_ASK_QUESTION,
+    DEFAULT_MODEL_ASK_SYSTEM_PROMPT,
+    DEFAULT_MODEL_ASK_TEMPERATURE,
+    DEFAULT_MODEL_ASK_TIMEOUT_SECONDS,
+    DEFAULT_QWEN_ASK_LOG_PATH,
     DEFAULT_UNSLOTH_VLLM_STANDBY,
-    DEFAULT_VLLM_COMPLETION_TOKEN_LIMIT,
     DEFAULT_VLLM_ENABLE_THINKING,
     DEFAULT_VLLM_GPU_MEMORY_UTILIZATION,
+    DEFAULT_VLLM_HOST,
     DEFAULT_VLLM_KV_CACHE_DTYPE,
     DEFAULT_VLLM_MAX_SEQ_LENGTH,
     DEFAULT_VLLM_PRESENCE_PENALTY,
-    DEFAULT_VLLM_TEMPERATURE,
+    DEFAULT_VLLM_STARTUP_TIMEOUT_SECONDS,
     DEFAULT_VLLM_TOP_P,
     LOCAL_MODEL_TOKENIZER_FILES,
     MODEL_REFERENCE_ALIASES,
@@ -42,8 +48,6 @@ logger = logging.getLogger(__name__)
 _VLLM_SERVER_REGISTRY_FILENAME = "benchmark_vllm_servers.json"
 JSON_OBJECT_ADAPTER = TypeAdapter(dict[str, object])
 SERVER_REGISTRY_ADAPTER = TypeAdapter(dict[str, dict[str, object]])
-MAIN_QUESTION = "what's the main argument of Sutton's Bitter Lessons?"
-DEFAULT_VLLM_HOST = "127.0.0.1"
 
 
 class ChatMessage(TypedDict):
@@ -654,11 +658,11 @@ def _restart_registered_vllm_server(
     return True
 
 
-def _choose_port(requested_port: int) -> int:
+def _choose_port(host: str, requested_port: int) -> int:
     if requested_port > 0:
         return requested_port
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
+        sock.bind((host, 0))
         return int(sock.getsockname()[1])
 
 
@@ -946,7 +950,7 @@ async def ensure_vllm_server(
         if not _port_is_available(host, requested_port):
             _stop_listener_on_port(host, requested_port)
     else:
-        selected_port = _choose_port(0)
+        selected_port = _choose_port(host, 0)
 
     handle = await _start_vllm_server(
         repo_root=repo_root,
@@ -976,9 +980,9 @@ async def ask(
     model_name: str,
     region: str | None = None,
     profile: str | None = None,
-    max_tokens: int = 512,
-    temperature: float = 0.0,
-    timeout_seconds: float = 120.0,
+    max_tokens: int = DEFAULT_MODEL_ASK_MAX_TOKENS,
+    temperature: float = DEFAULT_MODEL_ASK_TEMPERATURE,
+    timeout_seconds: float = DEFAULT_MODEL_ASK_TIMEOUT_SECONDS,
     prompt: str = "",
     messages: list[dict[str, str]] | None = None,
     system_prompt: str = "",
@@ -1008,9 +1012,9 @@ async def ask(
         requested_port=0,
         startup_timeout_seconds=max(
             timeout_seconds,
-            float(DEFAULT_GENERATION_TIMEOUT_SECONDS),
+            DEFAULT_VLLM_STARTUP_TIMEOUT_SECONDS,
         ),
-        log_path=PROJECT_ROOT / "run" / "qwen.ask.vllm.log",
+        log_path=DEFAULT_QWEN_ASK_LOG_PATH,
     )
     async with httpx.AsyncClient(
         base_url=handle.base_url,
@@ -1038,11 +1042,11 @@ async def ask(
 async def _main() -> None:
     answer = await ask(
         model_name=DEFAULT_BASE_MODEL,
-        max_tokens=DEFAULT_VLLM_COMPLETION_TOKEN_LIMIT,
-        temperature=DEFAULT_VLLM_TEMPERATURE,
+        max_tokens=DEFAULT_MODEL_ASK_MAX_TOKENS,
+        temperature=DEFAULT_MODEL_ASK_TEMPERATURE,
         timeout_seconds=float(DEFAULT_GENERATION_TIMEOUT_SECONDS),
-        prompt=MAIN_QUESTION,
-        system_prompt="You are a helpful assistant.",
+        prompt=DEFAULT_MODEL_ASK_QUESTION,
+        system_prompt=DEFAULT_MODEL_ASK_SYSTEM_PROMPT,
     )
     print(answer)
 

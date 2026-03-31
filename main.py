@@ -24,24 +24,26 @@ import random
 
 import click
 import httpx
-from models.anthropic import (
-    AWS_BEDROCK_SUPPORTED_MODEL_IDS,
-    NOISY_LOGGERS,
-    ask_bedrock,
-)
+from models.anthropic import ask_bedrock
 from config import (
+    AWS_BEDROCK_SUPPORTED_MODEL_IDS,
     DEFAULT_BASE_MODEL,
     DEFAULT_GENERATION_TIMEOUT_SECONDS,
     DEFAULT_ROLLOUT_COUNT,
     DEFAULT_UNSLOTH_VLLM_STANDBY,
+    DEFAULT_VLLM_BASE_URL,
     DEFAULT_VLLM_COMPLETION_TOKEN_LIMIT,
     DEFAULT_VLLM_ENABLE_THINKING,
     DEFAULT_VLLM_GPU_MEMORY_UTILIZATION,
+    DEFAULT_VLLM_HOST,
     DEFAULT_VLLM_KV_CACHE_DTYPE,
     DEFAULT_VLLM_MAX_SEQ_LENGTH,
     DEFAULT_VLLM_PRESENCE_PENALTY,
+    DEFAULT_VLLM_PORT,
+    DEFAULT_VLLM_STARTUP_TIMEOUT_SECONDS,
     DEFAULT_VLLM_TEMPERATURE,
     DEFAULT_VLLM_TOP_P,
+    NOISY_LOGGERS,
     PROJECT_BIN_DIR,
     PROJECT_ROOT,
     VLLM_STANDBY_ENV_KEY,
@@ -81,9 +83,9 @@ logger = logging.getLogger(__name__)
 PROMPT_SAMPLE_SEED = 0
 REQUIRED_CASE_TAG = "physician_agreed_category:not-enough-context"
 FOCUS_METRIC_NAME = "axis:context_awareness"
-VLLM_HOST = "127.0.0.1"
-VLLM_PORT = 8000
-VLLM_BASE_URL = f"http://{VLLM_HOST}:{VLLM_PORT}/v1"
+VLLM_HOST = DEFAULT_VLLM_HOST
+VLLM_PORT = DEFAULT_VLLM_PORT
+VLLM_BASE_URL = DEFAULT_VLLM_BASE_URL
 BENCHMARK_REPO_ROOT = PROJECT_ROOT
 DATASET_PATH = BENCHMARK_REPO_ROOT / "context_seeking_consensus_hard_104.jsonl"
 DEFAULT_RESULTS_DB_PATH = Path("./results.sqlite3")
@@ -538,7 +540,7 @@ async def run_benchmark(
             engine_config=runtime.vllm_engine_config,
             host=VLLM_HOST,
             requested_port=VLLM_PORT,
-            startup_timeout_seconds=600.0,
+            startup_timeout_seconds=DEFAULT_VLLM_STARTUP_TIMEOUT_SECONDS,
             log_path=run_log_path.with_suffix(".vllm.log"),
         )
         assert vllm_handle.base_url == VLLM_BASE_URL, (

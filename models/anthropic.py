@@ -6,25 +6,17 @@ import os
 
 from anthropic import AsyncAnthropicBedrock
 from anthropic.types import Message
+from config import (
+    AWS_BEDROCK_SUPPORTED_MODEL_IDS,
+    DEFAULT_BEDROCK_MODEL,
+    DEFAULT_MODEL_ASK_MAX_TOKENS,
+    DEFAULT_MODEL_ASK_QUESTION,
+    DEFAULT_MODEL_ASK_SYSTEM_PROMPT,
+    DEFAULT_MODEL_ASK_TEMPERATURE,
+    DEFAULT_MODEL_ASK_TIMEOUT_SECONDS,
+)
 
 logger = logging.getLogger(__name__)
-MAIN_QUESTION = "what's the main argument of Sutton's Bitter Lessons?"
-
-AWS_BEDROCK_SUPPORTED_MODEL_IDS = {
-    "anthropic-haiku-4.5": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
-    "anthropic-sonnet-4.6": "us.anthropic.claude-sonnet-4-6",
-    "anthropic-opus-4.6": "us.anthropic.claude-opus-4-6-v1",
-}
-NOISY_LOGGERS = (
-    "anthropic",
-    "anthropic._base_client",
-    "botocore",
-    "botocore.auth",
-    "botocore.credentials",
-    "botocore.hooks",
-    "botocore.session",
-    "botocore.utils",
-)
 
 
 def _resolve_bedrock_credentials() -> tuple[str | None, str | None, str | None]:
@@ -69,9 +61,9 @@ async def ask_bedrock(
     model_name: str,
     region: str | None = None,
     profile: str | None = None,
-    max_tokens: int = 512,
-    temperature: float = 0.0,
-    timeout_seconds: float = 120.0,
+    max_tokens: int = DEFAULT_MODEL_ASK_MAX_TOKENS,
+    temperature: float = DEFAULT_MODEL_ASK_TEMPERATURE,
+    timeout_seconds: float = DEFAULT_MODEL_ASK_TIMEOUT_SECONDS,
     prompt: str = "",
     messages: list[dict[str, str]] | None = None,
     system_prompt: str = "",
@@ -138,12 +130,12 @@ ask = ask_bedrock
 
 async def _main() -> None:
     answer = await ask(
-        model_name="anthropic-haiku-4.5",
-        max_tokens=512,
-        temperature=0.0,
-        timeout_seconds=120.0,
-        prompt=MAIN_QUESTION,
-        system_prompt="You are a helpful assistant.",
+        model_name=DEFAULT_BEDROCK_MODEL,
+        max_tokens=DEFAULT_MODEL_ASK_MAX_TOKENS,
+        temperature=DEFAULT_MODEL_ASK_TEMPERATURE,
+        timeout_seconds=DEFAULT_MODEL_ASK_TIMEOUT_SECONDS,
+        prompt=DEFAULT_MODEL_ASK_QUESTION,
+        system_prompt=DEFAULT_MODEL_ASK_SYSTEM_PROMPT,
     )
     print(answer)
 
