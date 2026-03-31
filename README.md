@@ -12,6 +12,7 @@ From this directory:
 uv run --env-file .env main.py --help
 uv run --env-file .env main.py
 uv run --env-file .env main.py --model gpt-4.1 --case-count 1 --rollout-count 2 --results-db ./results.sqlite3
+uv run --env-file .env main.py --model all --case-count 1 --rollout-count 2 --results-db ./results.sqlite3
 ```
 
 For the grader:

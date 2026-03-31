@@ -4,6 +4,7 @@ or AWS Bedrock.
 Usage:
     uv run --env-file .env main.py [--model ...] [--checkpoint ...] [--case-count N] [--rollout-count N]
     uv run --env-file .env main.py --model gpt-4.1 --case-count 1 --rollout-count 2 --results-db ./results.sqlite3
+    uv run --env-file .env main.py --model all --case-count 1 --rollout-count 2 --results-db ./results.sqlite3
 
 The benchmark runs the `physician_agreed_category:not-enough-context` prompts
 from `context_seeking_consensus_hard_104.jsonl`, grades outputs
@@ -65,6 +66,7 @@ logger = logging.getLogger(__name__)
 DATASET_PATH = PROJECT_ROOT / "context_seeking_consensus_hard_104.jsonl"
 DEFAULT_RESULTS_DB_PATH = Path("./results.sqlite3")
 CLICK_CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
+ALL_MODEL_OPTION = "all"
 SUPPORTED_NAMED_MODEL_IDS = (
     "gpt-4.1",
     "qwen3-8b",
@@ -73,6 +75,8 @@ SUPPORTED_NAMED_MODEL_IDS = (
 MODEL_OPTION_HELP = (
     "Target model to benchmark. Supported named targets: "
     f"{', '.join(SUPPORTED_NAMED_MODEL_IDS)}. "
+    f"Use '{ALL_MODEL_OPTION}' to benchmark each named target concurrently "
+    "where safe. Local vLLM targets remain serialized. "
     "For local vLLM runs, you can also pass any Hugging Face model id or "
     "a local model directory."
 )
@@ -117,7 +121,44 @@ def _build_benchmark_runtime(
     )
 
 
-async def run_benchmark(
+def _normalize_requested_model_name(model: str) -> str:
+    stripped_model = model.strip()
+    normalized_model = stripped_model.lower()
+    if (
+        normalized_model == ALL_MODEL_OPTION
+        or normalized_model in SUPPORTED_NAMED_MODEL_IDS
+        or is_azure_openai_model(normalized_model)
+    ):
+        return normalized_model
+    return stripped_model
+
+
+def _resolve_requested_models(
+    *,
+    model: str | None,
+    checkpoint: Path | None,
+) -> tuple[str | None, ...]:
+    if model is None:
+        return (None,)
+    normalized_model = _normalize_requested_model_name(model)
+    if normalized_model != ALL_MODEL_OPTION:
+        return (normalized_model,)
+    if checkpoint is not None:
+        raise click.UsageError("--model all cannot be combined with --checkpoint.")
+    return SUPPORTED_NAMED_MODEL_IDS
+
+
+def _display_model_name(model_name: str | None) -> str:
+    return DEFAULT_BASE_MODEL if model_name is None else model_name
+
+
+def _can_run_in_parallel(model_name: str | None) -> bool:
+    return model_name is not None and (
+        model_name.startswith("anthropic-") or is_azure_openai_model(model_name)
+    )
+
+
+async def _run_single_benchmark(
     *,
     case_count: int,
     rollout_count: int | None,
@@ -229,6 +270,136 @@ async def run_benchmark(
     )
 
 
+async def _run_benchmark_job(
+    *,
+    job_index: int,
+    job_count: int,
+    case_count: int,
+    rollout_count: int | None,
+    model_name: str | None,
+    checkpoint: Path | None,
+    repo_root: Path,
+    run_log_path: Path,
+    results_db_path: Path,
+) -> tuple[str, dict[str, list[float]]]:
+    logger.info(
+        "Starting benchmark run | run_index=%d/%d | model=%s",
+        job_index,
+        job_count,
+        _display_model_name(model_name),
+    )
+    return await _run_single_benchmark(
+        case_count=case_count,
+        rollout_count=rollout_count,
+        model_name=model_name,
+        checkpoint=checkpoint,
+        repo_root=repo_root,
+        run_log_path=run_log_path,
+        results_db_path=results_db_path,
+    )
+
+
+async def run_benchmark(
+    *,
+    case_count: int,
+    rollout_count: int | None,
+    model_names: tuple[str | None, ...],
+    checkpoint: Path | None,
+    repo_root: Path,
+    run_log_path: Path,
+    results_db_path: Path,
+) -> list[tuple[str, dict[str, list[float]]]]:
+    benchmark_jobs = list(enumerate(model_names, start=1))
+    parallel_jobs = [
+        (job_index, model_name)
+        for job_index, model_name in benchmark_jobs
+        if _can_run_in_parallel(model_name)
+    ]
+    serialized_jobs = [
+        (job_index, model_name)
+        for job_index, model_name in benchmark_jobs
+        if not _can_run_in_parallel(model_name)
+    ]
+    collected_results: dict[int, tuple[str, dict[str, list[float]]]] = {}
+    failures: list[str] = []
+
+    if parallel_jobs:
+        logger.info(
+            "Launching parallel benchmark runs | run_count=%d | models=%s",
+            len(parallel_jobs),
+            ", ".join(_display_model_name(model_name) for _, model_name in parallel_jobs),
+        )
+        parallel_results = await asyncio.gather(
+            *[
+                _run_benchmark_job(
+                    job_index=job_index,
+                    job_count=len(model_names),
+                    case_count=case_count,
+                    rollout_count=rollout_count,
+                    model_name=model_name,
+                    checkpoint=checkpoint,
+                    repo_root=repo_root,
+                    run_log_path=run_log_path,
+                    results_db_path=results_db_path,
+                )
+                for job_index, model_name in parallel_jobs
+            ],
+            return_exceptions=True,
+        )
+        for (job_index, _), result in zip(
+            parallel_jobs,
+            parallel_results,
+            strict=True,
+        ):
+            if isinstance(result, BaseException):
+                model_name = benchmark_jobs[job_index - 1][1]
+                logger.exception(
+                    "Parallel benchmark run failed | run_index=%d/%d | model=%s",
+                    job_index,
+                    len(model_names),
+                    _display_model_name(model_name),
+                    exc_info=result,
+                )
+                failures.append(
+                    f"{_display_model_name(model_name)} ({type(result).__name__})"
+                )
+                continue
+            collected_results[job_index] = result
+
+    for job_index, model_name in serialized_jobs:
+        try:
+            collected_results[job_index] = await _run_benchmark_job(
+                job_index=job_index,
+                job_count=len(model_names),
+                case_count=case_count,
+                rollout_count=rollout_count,
+                model_name=model_name,
+                checkpoint=checkpoint,
+                repo_root=repo_root,
+                run_log_path=run_log_path,
+                results_db_path=results_db_path,
+            )
+        except Exception as error:
+            logger.exception(
+                "Serialized benchmark run failed | run_index=%d/%d | model=%s",
+                job_index,
+                len(model_names),
+                _display_model_name(model_name),
+                exc_info=error,
+            )
+            failures.append(
+                f"{_display_model_name(model_name)} ({type(error).__name__})"
+            )
+
+    if failures:
+        failure_count = len(failures)
+        raise RuntimeError(
+            f"{failure_count} benchmark run(s) failed: {', '.join(failures)}"
+        )
+
+    return [collected_results[job_index] for job_index, _ in benchmark_jobs]
+
+
 @click.command(context_settings=CLICK_CONTEXT_SETTINGS)
 @click.option(
     "--model",
@@ -282,18 +453,18 @@ def cli(
     """Run HealthBench rubric benchmark rollouts and persist them to SQLite."""
     _apply_runtime_env_defaults()
     run_log_path = init_logging(level=logging.DEBUG)
-    experiment_id, results = asyncio.run(
+    requested_models = _resolve_requested_models(model=model, checkpoint=checkpoint)
+    asyncio.run(
         run_benchmark(
             case_count=case_count,
             rollout_count=rollout_count,
-            model_name=model.lower() if model is not None else None,
+            model_names=requested_models,
             checkpoint=checkpoint,
             repo_root=PROJECT_ROOT,
             run_log_path=run_log_path,
             results_db_path=results_db,
         )
     )
-
 
 if __name__ == "__main__":
     cli()
