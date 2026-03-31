@@ -7,9 +7,9 @@ Usage:
     uv run --env-file .env main.py --model all --case-count 1 --rollout-count 2 --results-db ./results.sqlite3
 
 The benchmark runs the `physician_agreed_category:not-enough-context` prompts
-from `context_seeking_consensus_hard_104.jsonl`, grades outputs
-against the shared context-awareness rubric for that slice with Azure OpenAI,
-and reports aggregate metrics.
+from `context_seeking_consensus_hard_104.jsonl`, grades outputs against the
+shared context-awareness rubric for that slice with Azure OpenAI, and reports
+aggregate metrics.
 
 The command applies the hard-coded benchmark settings from this repo, starts or
 reuses a local vLLM server here, generates one or more responses per input,
@@ -17,11 +17,13 @@ logs to `run/*.log`, and prints focused aggregate metrics as CSV.
 """
 
 import asyncio
+import json
 import logging
 import os
 from pathlib import Path
 
 import click
+
 from config import (
     AWS_BEDROCK_SUPPORTED_MODEL_IDS,
     DEFAULT_BASE_MODEL,
@@ -37,18 +39,10 @@ from config import (
     PROJECT_ROOT,
     VLLM_STANDBY_ENV_KEY,
 )
-from entities import (
-    TargetModel,
-    dump_json_value,
-)
-from models.openai import (
-    azure_openai_serving_config,
-    is_azure_openai_model,
-)
-from rollout import load_cases, run_rollouts
-from models.qwen import (
-    ensure_vllm_server,
-)
+from entities import TargetModel
+from executor import execute, load_cases
+from models.openai import azure_openai_serving_config, is_azure_openai_model
+from models.qwen import ensure_vllm_server
 from utils import init_logging
 
 logger = logging.getLogger(__name__)
@@ -82,16 +76,6 @@ def _apply_runtime_env_defaults() -> None:
                 else project_bin
             )
     os.environ.setdefault(VLLM_STANDBY_ENV_KEY, DEFAULT_UNSLOTH_VLLM_STANDBY)
-def _normalize_requested_model_name(model: str) -> str:
-    stripped_model = model.strip()
-    normalized_model = stripped_model.lower()
-    if (
-        normalized_model == ALL_MODEL_OPTION
-        or normalized_model in SUPPORTED_NAMED_MODEL_IDS
-        or is_azure_openai_model(normalized_model)
-    ):
-        return normalized_model
-    return stripped_model
 
 
 def _resolve_requested_models(
@@ -101,19 +85,21 @@ def _resolve_requested_models(
 ) -> tuple[str | None, ...]:
     if model is None:
         return (None,)
-    normalized_model = _normalize_requested_model_name(model)
-    if normalized_model != ALL_MODEL_OPTION:
+
+    stripped_model = model.strip()
+    normalized_model = stripped_model.lower()
+    if normalized_model == ALL_MODEL_OPTION:
+        if checkpoint is not None:
+            raise click.UsageError("--model all cannot be combined with --checkpoint.")
+        return SUPPORTED_NAMED_MODEL_IDS
+    if normalized_model in SUPPORTED_NAMED_MODEL_IDS or is_azure_openai_model(
+        normalized_model
+    ):
         return (normalized_model,)
-    if checkpoint is not None:
-        raise click.UsageError("--model all cannot be combined with --checkpoint.")
-    return SUPPORTED_NAMED_MODEL_IDS
+    return (stripped_model,)
 
 
-def _display_model_name(model_name: str | None) -> str:
-    return DEFAULT_BASE_MODEL if model_name is None else model_name
-
-
-async def _run_single_benchmark(
+async def run_case(
     *,
     case_count: int,
     rollout_count: int | None,
@@ -151,13 +137,14 @@ async def _run_single_benchmark(
     )
 
     experiment_id = "default"
-    request_parameters_json = dump_json_value(
+    request_parameters_json = json.dumps(
         {
             "temperature": DEFAULT_VLLM_TEMPERATURE,
             "top_p": DEFAULT_VLLM_TOP_P,
             "presence_penalty": DEFAULT_VLLM_PRESENCE_PENALTY,
             "max_tokens": DEFAULT_VLLM_COMPLETION_TOKEN_LIMIT,
-        }
+        },
+        ensure_ascii=False,
     )
     run_experiment_id = experiment_id
     if is_anthropic:
@@ -186,10 +173,13 @@ async def _run_single_benchmark(
         target_model = TargetModel.azure_openai(
             model_id=model_name,
             request_parameters_json=request_parameters_json,
-            serving_config_json=dump_json_value(azure_openai_serving_config()),
+            serving_config_json=json.dumps(
+                azure_openai_serving_config(),
+                ensure_ascii=False,
+            ),
         )
     else:
-        base_url, model_id, base_model_name = await ensure_vllm_server(
+        base_url, model_id = await ensure_vllm_server(
             repo_root=repo_root,
             base_model=local_model_name,
             checkpoint=local_checkpoint,
@@ -200,17 +190,16 @@ async def _run_single_benchmark(
         )
         target_model = TargetModel.vllm(
             model_id=model_id,
-            base_model_name=base_model_name,
             checkpoint_path=(
                 str(local_checkpoint.expanduser().resolve())
                 if local_checkpoint is not None
                 else None
             ),
             request_parameters_json=request_parameters_json,
-            serving_config_json=dump_json_value({"base_url": base_url}),
+            serving_config_json=json.dumps({"base_url": base_url}, ensure_ascii=False),
         )
 
-    return await run_rollouts(
+    return await execute(
         experiment_id=run_experiment_id,
         target_model=target_model,
         cases=cases,
@@ -232,15 +221,16 @@ async def run_benchmark(
     collected_results: list[tuple[str, dict[str, list[float]]]] = []
 
     for job_index, model_name in benchmark_jobs:
+        model_label = DEFAULT_BASE_MODEL if model_name is None else model_name
         try:
             logger.info(
                 "Starting benchmark run | run_index=%d/%d | model=%s",
                 job_index,
                 len(model_names),
-                _display_model_name(model_name),
+                model_label,
             )
             collected_results.append(
-                await _run_single_benchmark(
+                await run_case(
                     case_count=case_count,
                     rollout_count=rollout_count,
                     model_name=model_name,
@@ -254,7 +244,7 @@ async def run_benchmark(
                 "Benchmark run failed | run_index=%d/%d | model=%s",
                 job_index,
                 len(model_names),
-                _display_model_name(model_name),
+                model_label,
                 exc_info=error,
             )
     return collected_results
@@ -292,9 +282,7 @@ async def run_benchmark(
     type=click.IntRange(min=1),
     default=DEFAULT_ROLLOUT_COUNT,
     show_default=True,
-    help=(
-        "Number of rollout samples to generate per case."
-    ),
+    help="Number of rollout samples to generate per case.",
 )
 @click.option(
     "--results-db",
@@ -324,6 +312,7 @@ def cli(
             results_db_path=results_db,
         )
     )
+
 
 if __name__ == "__main__":
     cli()

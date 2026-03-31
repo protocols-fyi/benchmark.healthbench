@@ -5,18 +5,21 @@ from collections.abc import Iterable, Mapping
 import os
 
 from openai import AsyncAzureOpenAI
+
 from config import (
     DEFAULT_AZURE_OPENAI_API_VERSION,
     DEFAULT_AZURE_OPENAI_DEPLOYMENT,
     DEFAULT_AZURE_OPENAI_ENDPOINT,
     DEFAULT_AZURE_OPENAI_MAX_RETRIES,
     DEFAULT_AZURE_OPENAI_TIMEOUT_SECONDS,
+    DEFAULT_GENERATION_TIMEOUT_SECONDS,
     DEFAULT_MODEL_ASK_MAX_TOKENS,
     DEFAULT_MODEL_ASK_QUESTION,
     DEFAULT_MODEL_ASK_SYSTEM_PROMPT,
-    DEFAULT_MODEL_ASK_TEMPERATURE,
-    DEFAULT_MODEL_ASK_TIMEOUT_SECONDS,
+    DEFAULT_VLLM_COMPLETION_TOKEN_LIMIT,
     DEFAULT_VLLM_PRESENCE_PENALTY,
+    DEFAULT_VLLM_TEMPERATURE,
+    DEFAULT_VLLM_TOP_P,
 )
 
 
@@ -98,25 +101,27 @@ def extract_chat_completion_content(payload: Mapping[str, object]) -> str:
 
 def extract_usage_counts(
     completion_payload: Mapping[str, object],
-) -> tuple[int | None, int | None, int | None]:
+) -> tuple[int, int, int]:
     usage = completion_payload.get("usage")
-    if not isinstance(usage, Mapping):
-        return None, None, None
+    assert isinstance(usage, Mapping), "OpenAI completion missing usage."
+
     input_token_count = usage.get("prompt_tokens")
     output_token_count = usage.get("completion_tokens")
-    cached_input_token_count = None
+    assert isinstance(input_token_count, int) and input_token_count >= 0, (
+        "OpenAI completion missing prompt_tokens."
+    )
+    assert isinstance(output_token_count, int) and output_token_count >= 0, (
+        "OpenAI completion missing completion_tokens."
+    )
+
+    cached_input_token_count = 0
     prompt_tokens_details = usage.get("prompt_tokens_details")
     if isinstance(prompt_tokens_details, Mapping):
-        cached_input_token_count = prompt_tokens_details.get("cached_tokens")
-    return (
-        int(input_token_count) if isinstance(input_token_count, int) else None,
-        (
-            int(cached_input_token_count)
-            if isinstance(cached_input_token_count, int)
-            else None
-        ),
-        int(output_token_count) if isinstance(output_token_count, int) else None,
-    )
+        cached_tokens = prompt_tokens_details.get("cached_tokens")
+        if isinstance(cached_tokens, int):
+            cached_input_token_count = cached_tokens
+
+    return input_token_count, cached_input_token_count, output_token_count
 
 
 def _normalize_request_messages(
@@ -211,47 +216,50 @@ async def request_azure_openai_chat_completion(
 async def ask(
     *,
     model_name: str,
-    region: str | None = None,
-    profile: str | None = None,
-    max_tokens: int = DEFAULT_MODEL_ASK_MAX_TOKENS,
-    temperature: float = DEFAULT_MODEL_ASK_TEMPERATURE,
-    timeout_seconds: float = DEFAULT_MODEL_ASK_TIMEOUT_SECONDS,
     prompt: str = "",
     messages: list[dict[str, str]] | None = None,
     system_prompt: str = "",
-    top_p: float | None = None,
-) -> str:
-    del region, profile
+    max_tokens: int = DEFAULT_VLLM_COMPLETION_TOKEN_LIMIT,
+) -> tuple[str, int, int, int]:
     request_messages = _normalize_request_messages(
         prompt=prompt,
         messages=messages,
         system_prompt=system_prompt,
     )
-    client = create_azure_openai_client(timeout_seconds=timeout_seconds)
+    client = create_azure_openai_client(
+        timeout_seconds=DEFAULT_GENERATION_TIMEOUT_SECONDS
+    )
     try:
         completion_payload = await request_azure_openai_chat_completion(
             messages=request_messages,
             model=model_name,
             max_tokens=max_tokens,
-            temperature=temperature,
-            top_p=top_p,
+            temperature=DEFAULT_VLLM_TEMPERATURE,
+            top_p=DEFAULT_VLLM_TOP_P,
             presence_penalty=DEFAULT_VLLM_PRESENCE_PENALTY,
             client=client,
         )
     finally:
         await client.close()
-    return extract_chat_completion_content(completion_payload)
+
+    input_token_count, cached_input_token_count, output_token_count = (
+        extract_usage_counts(completion_payload)
+    )
+    return (
+        extract_chat_completion_content(completion_payload),
+        input_token_count,
+        cached_input_token_count,
+        output_token_count,
+    )
 
 
 async def _main() -> None:
-    answer = await ask(
+    answer, _, _, _ = await ask(
         model_name=_require_env(
             "AZURE_OPENAI_DEPLOYMENT",
             os.environ.get("AZURE_OPENAI_MODEL", DEFAULT_AZURE_OPENAI_DEPLOYMENT),
         ),
         max_tokens=DEFAULT_MODEL_ASK_MAX_TOKENS,
-        temperature=DEFAULT_MODEL_ASK_TEMPERATURE,
-        timeout_seconds=DEFAULT_AZURE_OPENAI_TIMEOUT_SECONDS,
         prompt=DEFAULT_MODEL_ASK_QUESTION,
         system_prompt=DEFAULT_MODEL_ASK_SYSTEM_PROMPT,
     )

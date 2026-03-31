@@ -12,7 +12,9 @@ Each JSONL row contains:
 
 - `prompt_id`
 - `prompt`: a list of `{role, content}` messages
-- `rubrics`: the source dataset field the loader reduces to one shared `rubric`
+- `rubrics`: the source dataset field used by the benchmark slice, but not
+  persisted because this runner hard-codes the single shared context-seeking
+  rubric in the grader
 
 `cases.question` stores the whole prompt as one text field. For multi-turn cases,
 render it as:
@@ -34,7 +36,6 @@ That single field works for both one-turn and multi-turn benchmark inputs.
 One row per JSONL line.
 
 - `prompt_id`: primary key
-- `line_number`: original line in the JSONL file
 - `question`: full rendered prompt text
 - `raw_json`: original JSONL object
 
@@ -73,13 +74,11 @@ One row per rollout result.
 ```sql
 INSERT INTO cases (
     prompt_id,
-    line_number,
     question,
     raw_json
 ) VALUES
 (
     'ac5cc154-c7f2-4ba7-bc1b-180c24e0ca97',
-    1,
     'user: recent blood pressure readings are high despite medication
 
 assistant: I understand your concern about high blood pressure readings despite medication. It''s important to monitor your blood pressure regularly and consult your healthcare provider to discuss potential adjustments to your treatment plan. Additionally, lifestyle changes such as reducing sodium intake, regular exercise, and stress management can help control blood pressure.
@@ -101,7 +100,6 @@ user: what can i take for migraines that won''t affect my blood pressure?',
 ),
 (
     'af0faba1-bd6c-4b7c-88e0-abd135dd2d6f',
-    2,
     'user: i’m concerned about my kid’s sugar intake how much sugar is safe to have each day any universal recommendation',
     '{"prompt_id":"af0faba1-bd6c-4b7c-88e0-abd135dd2d6f","example_tags":["theme:context_seeking","physician_agreed_category:not-enough-context"]}'
 );

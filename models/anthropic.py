@@ -6,14 +6,16 @@ import os
 
 from anthropic import AsyncAnthropicBedrock
 from anthropic.types import Message
+
 from config import (
     AWS_BEDROCK_SUPPORTED_MODEL_IDS,
     DEFAULT_BEDROCK_MODEL,
+    DEFAULT_GENERATION_TIMEOUT_SECONDS,
     DEFAULT_MODEL_ASK_MAX_TOKENS,
     DEFAULT_MODEL_ASK_QUESTION,
     DEFAULT_MODEL_ASK_SYSTEM_PROMPT,
-    DEFAULT_MODEL_ASK_TEMPERATURE,
-    DEFAULT_MODEL_ASK_TIMEOUT_SECONDS,
+    DEFAULT_VLLM_TEMPERATURE,
+    DEFAULT_VLLM_TOP_P,
 )
 
 logger = logging.getLogger(__name__)
@@ -46,34 +48,27 @@ def _extract_text_blocks(message: Message) -> str:
     return visible_text
 
 
-def _resolve_region(region: str | None) -> str:
+def _resolve_region() -> str:
     resolved_region = (
-        region
-        or os.environ.get("AWS_REGION", "").strip()
+        os.environ.get("AWS_REGION", "").strip()
         or os.environ.get("AWS_DEFAULT_REGION", "").strip()
     )
     assert resolved_region, "Set AWS_REGION or AWS_DEFAULT_REGION."
     return resolved_region
 
 
-async def ask_bedrock(
+async def ask(
     *,
     model_name: str,
-    region: str | None = None,
-    profile: str | None = None,
-    max_tokens: int = DEFAULT_MODEL_ASK_MAX_TOKENS,
-    temperature: float = DEFAULT_MODEL_ASK_TEMPERATURE,
-    timeout_seconds: float = DEFAULT_MODEL_ASK_TIMEOUT_SECONDS,
     prompt: str = "",
     messages: list[dict[str, str]] | None = None,
     system_prompt: str = "",
-    top_p: float | None = None,
-) -> str:
+    max_tokens: int = DEFAULT_MODEL_ASK_MAX_TOKENS,
+) -> tuple[str, int, int, int]:
     assert model_name in AWS_BEDROCK_SUPPORTED_MODEL_IDS, (
         f"Unsupported Bedrock model: {model_name}"
     )
     resolved_model_id = AWS_BEDROCK_SUPPORTED_MODEL_IDS[model_name]
-    resolved_region = _resolve_region(region.strip() if region is not None else None)
     normalized_prompt = prompt.strip()
     normalized_system_prompt = system_prompt.strip()
     if messages is None:
@@ -99,41 +94,47 @@ async def ask_bedrock(
     access_key, secret_key, session_token = _resolve_bedrock_credentials()
     async with AsyncAnthropicBedrock(
         aws_access_key=access_key,
-        aws_profile=profile,
-        aws_region=resolved_region,
+        aws_region=_resolve_region(),
         aws_secret_key=secret_key,
         aws_session_token=session_token,
         max_retries=0,
-        timeout=timeout_seconds,
+        timeout=DEFAULT_GENERATION_TIMEOUT_SECONDS,
     ) as client:
         request_kwargs: dict[str, object] = {
             "model": resolved_model_id,
             "max_tokens": max_tokens,
             "messages": request_messages,
-            "temperature": temperature,
+            "temperature": DEFAULT_VLLM_TEMPERATURE,
         }
         if normalized_system_prompt:
             request_kwargs["system"] = normalized_system_prompt
-        if top_p is not None:
-            request_kwargs["top_p"] = top_p
+        if DEFAULT_VLLM_TEMPERATURE == 0.0:
+            request_kwargs["top_p"] = DEFAULT_VLLM_TOP_P
         response = await client.messages.create(**request_kwargs)
+
     logger.info(
         "Completed Bedrock request | model=%s | resolved_bedrock_model_id=%s",
         model_name,
         response.model,
     )
-    return _extract_text_blocks(response)
-
-
-ask = ask_bedrock
+    cached_input_token_count = response.usage.cache_read_input_tokens or 0
+    input_token_count = (
+        response.usage.input_tokens
+        + (response.usage.cache_creation_input_tokens or 0)
+        + cached_input_token_count
+    )
+    return (
+        _extract_text_blocks(response),
+        input_token_count,
+        cached_input_token_count,
+        response.usage.output_tokens,
+    )
 
 
 async def _main() -> None:
-    answer = await ask(
+    answer, _, _, _ = await ask(
         model_name=DEFAULT_BEDROCK_MODEL,
         max_tokens=DEFAULT_MODEL_ASK_MAX_TOKENS,
-        temperature=DEFAULT_MODEL_ASK_TEMPERATURE,
-        timeout_seconds=DEFAULT_MODEL_ASK_TIMEOUT_SECONDS,
         prompt=DEFAULT_MODEL_ASK_QUESTION,
         system_prompt=DEFAULT_MODEL_ASK_SYSTEM_PROMPT,
     )

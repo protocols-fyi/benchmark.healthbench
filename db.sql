@@ -4,7 +4,6 @@ BEGIN;
 
 CREATE TABLE IF NOT EXISTS cases (
     prompt_id TEXT PRIMARY KEY,
-    line_number INTEGER NOT NULL UNIQUE CHECK (line_number > 0),
     question TEXT NOT NULL,
     raw_json TEXT NOT NULL CHECK (json_valid(raw_json)),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -35,15 +34,11 @@ CREATE TABLE IF NOT EXISTS sessions (
     grader_explanation TEXT,
     criteria_met INTEGER NOT NULL CHECK (criteria_met IN (0, 1)),
     score REAL NOT NULL CHECK (score >= 0.0 AND score <= 1.0),
-    input_token_count INTEGER CHECK (
-        input_token_count IS NULL OR input_token_count >= 0
+    input_token_count INTEGER NOT NULL CHECK (input_token_count >= 0),
+    cached_input_token_count INTEGER NOT NULL CHECK (
+        cached_input_token_count >= 0
     ),
-    cached_input_token_count INTEGER CHECK (
-        cached_input_token_count IS NULL OR cached_input_token_count >= 0
-    ),
-    output_token_count INTEGER CHECK (
-        output_token_count IS NULL OR output_token_count >= 0
-    ),
+    output_token_count INTEGER NOT NULL CHECK (output_token_count >= 0),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
