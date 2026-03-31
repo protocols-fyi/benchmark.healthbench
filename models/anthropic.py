@@ -9,16 +9,22 @@ from anthropic.types import Message
 
 from config import (
     AWS_BEDROCK_SUPPORTED_MODEL_IDS,
+    DEFAULT_AWS_BEDROCK_REGION,
     DEFAULT_BEDROCK_MODEL,
     DEFAULT_GENERATION_TIMEOUT_SECONDS,
-    DEFAULT_MODEL_ASK_MAX_TOKENS,
     DEFAULT_MODEL_ASK_QUESTION,
-    DEFAULT_MODEL_ASK_SYSTEM_PROMPT,
-    DEFAULT_VLLM_TEMPERATURE,
-    DEFAULT_VLLM_TOP_P,
 )
 
 logger = logging.getLogger(__name__)
+
+AWS_BEDROCK_BENCHMARK_REQUEST_PARAMETERS = {
+    "temperature": 1.0,
+    "max_tokens": 20_000,
+    "thinking": {
+        "type": "enabled",
+        "budget_tokens": 16_000,
+    },
+}
 
 
 def _resolve_bedrock_credentials() -> tuple[str | None, str | None, str | None]:
@@ -52,8 +58,8 @@ def _resolve_region() -> str:
     resolved_region = (
         os.environ.get("AWS_REGION", "").strip()
         or os.environ.get("AWS_DEFAULT_REGION", "").strip()
+        or DEFAULT_AWS_BEDROCK_REGION
     )
-    assert resolved_region, "Set AWS_REGION or AWS_DEFAULT_REGION."
     return resolved_region
 
 
@@ -63,14 +69,13 @@ async def ask(
     prompt: str = "",
     messages: list[dict[str, str]] | None = None,
     system_prompt: str = "",
-    max_tokens: int = DEFAULT_MODEL_ASK_MAX_TOKENS,
+    max_tokens: int = AWS_BEDROCK_BENCHMARK_REQUEST_PARAMETERS["max_tokens"],
 ) -> tuple[str, int, int, int]:
     assert model_name in AWS_BEDROCK_SUPPORTED_MODEL_IDS, (
         f"Unsupported Bedrock model: {model_name}"
     )
     resolved_model_id = AWS_BEDROCK_SUPPORTED_MODEL_IDS[model_name]
     normalized_prompt = prompt.strip()
-    normalized_system_prompt = system_prompt.strip()
     if messages is None:
         assert normalized_prompt, (
             "prompt must be non-empty when messages are not provided."
@@ -104,12 +109,9 @@ async def ask(
             "model": resolved_model_id,
             "max_tokens": max_tokens,
             "messages": request_messages,
-            "temperature": DEFAULT_VLLM_TEMPERATURE,
+            "temperature": AWS_BEDROCK_BENCHMARK_REQUEST_PARAMETERS["temperature"],
+            "thinking": AWS_BEDROCK_BENCHMARK_REQUEST_PARAMETERS["thinking"],
         }
-        if normalized_system_prompt:
-            request_kwargs["system"] = normalized_system_prompt
-        if DEFAULT_VLLM_TEMPERATURE == 0.0:
-            request_kwargs["top_p"] = DEFAULT_VLLM_TOP_P
         response = await client.messages.create(**request_kwargs)
 
     logger.info(
@@ -134,9 +136,7 @@ async def ask(
 async def _main() -> None:
     answer, _, _, _ = await ask(
         model_name=DEFAULT_BEDROCK_MODEL,
-        max_tokens=DEFAULT_MODEL_ASK_MAX_TOKENS,
         prompt=DEFAULT_MODEL_ASK_QUESTION,
-        system_prompt=DEFAULT_MODEL_ASK_SYSTEM_PROMPT,
     )
     print(answer)
 

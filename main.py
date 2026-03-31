@@ -30,10 +30,6 @@ from config import (
     DEFAULT_ROLLOUT_COUNT,
     DEFAULT_UNSLOTH_VLLM_STANDBY,
     DEFAULT_VLLM_BASE_URL,
-    DEFAULT_VLLM_COMPLETION_TOKEN_LIMIT,
-    DEFAULT_VLLM_PRESENCE_PENALTY,
-    DEFAULT_VLLM_TEMPERATURE,
-    DEFAULT_VLLM_TOP_P,
     NOISY_LOGGERS,
     PROJECT_BIN_DIR,
     PROJECT_ROOT,
@@ -41,8 +37,13 @@ from config import (
 )
 from entities import TargetModel
 from executor import execute, load_cases
-from models.openai import azure_openai_serving_config, is_azure_openai_model
-from models.qwen import ensure_vllm_server
+from models.anthropic import AWS_BEDROCK_BENCHMARK_REQUEST_PARAMETERS
+from models.openai import (
+    AZURE_OPENAI_BENCHMARK_REQUEST_PARAMETERS,
+    azure_openai_serving_config,
+    is_azure_openai_model,
+)
+from models.qwen import VLLM_BENCHMARK_REQUEST_PARAMETERS, ensure_vllm_server
 from utils import init_logging
 
 logger = logging.getLogger(__name__)
@@ -137,15 +138,6 @@ async def run_case(
     )
 
     experiment_id = "default"
-    request_parameters_json = json.dumps(
-        {
-            "temperature": DEFAULT_VLLM_TEMPERATURE,
-            "top_p": DEFAULT_VLLM_TOP_P,
-            "presence_penalty": DEFAULT_VLLM_PRESENCE_PENALTY,
-            "max_tokens": DEFAULT_VLLM_COMPLETION_TOKEN_LIMIT,
-        },
-        ensure_ascii=False,
-    )
     run_experiment_id = experiment_id
     if is_anthropic:
         assert model_name is not None
@@ -161,7 +153,10 @@ async def run_case(
         run_experiment_id = f"{experiment_id}-{model_name}"
         target_model = TargetModel.aws_bedrock(
             model_id=model_name,
-            request_parameters_json=request_parameters_json,
+            request_parameters_json=json.dumps(
+                AWS_BEDROCK_BENCHMARK_REQUEST_PARAMETERS,
+                ensure_ascii=False,
+            ),
         )
     elif is_azure_openai:
         assert model_name is not None
@@ -172,7 +167,10 @@ async def run_case(
         run_experiment_id = f"{experiment_id}-{model_name}"
         target_model = TargetModel.azure_openai(
             model_id=model_name,
-            request_parameters_json=request_parameters_json,
+            request_parameters_json=json.dumps(
+                AZURE_OPENAI_BENCHMARK_REQUEST_PARAMETERS,
+                ensure_ascii=False,
+            ),
             serving_config_json=json.dumps(
                 azure_openai_serving_config(),
                 ensure_ascii=False,
@@ -195,7 +193,10 @@ async def run_case(
                 if local_checkpoint is not None
                 else None
             ),
-            request_parameters_json=request_parameters_json,
+            request_parameters_json=json.dumps(
+                VLLM_BENCHMARK_REQUEST_PARAMETERS,
+                ensure_ascii=False,
+            ),
             serving_config_json=json.dumps({"base_url": base_url}, ensure_ascii=False),
         )
 

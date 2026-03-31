@@ -17,10 +17,12 @@ from config import (
     DEFAULT_MODEL_ASK_QUESTION,
     DEFAULT_MODEL_ASK_SYSTEM_PROMPT,
     DEFAULT_VLLM_COMPLETION_TOKEN_LIMIT,
-    DEFAULT_VLLM_PRESENCE_PENALTY,
-    DEFAULT_VLLM_TEMPERATURE,
-    DEFAULT_VLLM_TOP_P,
 )
+
+AZURE_OPENAI_BENCHMARK_REQUEST_PARAMETERS = {
+    "temperature": 1.0,
+    "max_tokens": DEFAULT_VLLM_COMPLETION_TOKEN_LIMIT,
+}
 
 
 def _require_env(name: str, default: str | None = None) -> str:
@@ -219,7 +221,7 @@ async def ask(
     prompt: str = "",
     messages: list[dict[str, str]] | None = None,
     system_prompt: str = "",
-    max_tokens: int = DEFAULT_VLLM_COMPLETION_TOKEN_LIMIT,
+    max_tokens: int = AZURE_OPENAI_BENCHMARK_REQUEST_PARAMETERS["max_tokens"],
 ) -> tuple[str, int, int, int]:
     request_messages = _normalize_request_messages(
         prompt=prompt,
@@ -234,9 +236,7 @@ async def ask(
             messages=request_messages,
             model=model_name,
             max_tokens=max_tokens,
-            temperature=DEFAULT_VLLM_TEMPERATURE,
-            top_p=DEFAULT_VLLM_TOP_P,
-            presence_penalty=DEFAULT_VLLM_PRESENCE_PENALTY,
+            temperature=AZURE_OPENAI_BENCHMARK_REQUEST_PARAMETERS["temperature"],
             client=client,
         )
     finally:

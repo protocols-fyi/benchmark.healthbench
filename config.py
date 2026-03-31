@@ -55,6 +55,7 @@ AWS_BEDROCK_SUPPORTED_MODEL_IDS = {
     "anthropic-sonnet-4.6": "global.anthropic.claude-sonnet-4-6",
     "anthropic-opus-4.6": "global.anthropic.claude-opus-4-6-v1",
 }
+DEFAULT_AWS_BEDROCK_REGION = "us-west-2"
 NOISY_LOGGERS = (
     "anthropic",
     "anthropic._base_client",

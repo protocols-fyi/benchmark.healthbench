@@ -9,7 +9,6 @@ import random
 
 from config import (
     AWS_BEDROCK_SUPPORTED_MODEL_IDS,
-    DEFAULT_VLLM_COMPLETION_TOKEN_LIMIT,
     PROMPT_SAMPLE_SEED,
     REQUIRED_CASE_TAG,
 )
@@ -115,7 +114,6 @@ async def _execute_case(
                 output_token_count,
             ) = await ask_anthropic(
                 model_name=target_model.model_id,
-                max_tokens=DEFAULT_VLLM_COMPLETION_TOKEN_LIMIT,
                 messages=request_messages,
                 system_prompt=system_prompt,
             )
@@ -127,7 +125,6 @@ async def _execute_case(
                 output_token_count,
             ) = await ask_azure_openai(
                 model_name=target_model.model_id,
-                max_tokens=DEFAULT_VLLM_COMPLETION_TOKEN_LIMIT,
                 messages=server_messages,
             )
         else:
@@ -138,7 +135,6 @@ async def _execute_case(
                 output_token_count,
             ) = await ask_vllm(
                 model_name=target_model.model_id,
-                max_tokens=DEFAULT_VLLM_COMPLETION_TOKEN_LIMIT,
                 messages=queried_prompt,
             )
 

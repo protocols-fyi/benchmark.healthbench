@@ -26,7 +26,15 @@ from config import (
     DEFAULT_VLLM_TEMPERATURE,
     DEFAULT_VLLM_TOP_P,
     MODEL_REFERENCE_ALIASES,
+    PROJECT_BIN_DIR,
 )
+
+VLLM_BENCHMARK_REQUEST_PARAMETERS = {
+    "temperature": DEFAULT_VLLM_TEMPERATURE,
+    "top_p": DEFAULT_VLLM_TOP_P,
+    "presence_penalty": DEFAULT_VLLM_PRESENCE_PENALTY,
+    "max_tokens": DEFAULT_VLLM_COMPLETION_TOKEN_LIMIT,
+}
 
 
 class ChatMessage(TypedDict):
@@ -92,7 +100,7 @@ async def ask(
     prompt: str = "",
     messages: list[dict[str, str]] | None = None,
     system_prompt: str = "",
-    max_tokens: int = DEFAULT_VLLM_COMPLETION_TOKEN_LIMIT,
+    max_tokens: int = VLLM_BENCHMARK_REQUEST_PARAMETERS["max_tokens"],
 ) -> tuple[str, int, int, int]:
     normalized_prompt = prompt.strip()
     normalized_system_prompt = system_prompt.strip()
@@ -134,9 +142,11 @@ async def ask(
                 "model": model_name,
                 "messages": request_messages,
                 "max_tokens": max_tokens,
-                "top_p": DEFAULT_VLLM_TOP_P,
-                "temperature": DEFAULT_VLLM_TEMPERATURE,
-                "presence_penalty": DEFAULT_VLLM_PRESENCE_PENALTY,
+                "top_p": VLLM_BENCHMARK_REQUEST_PARAMETERS["top_p"],
+                "temperature": VLLM_BENCHMARK_REQUEST_PARAMETERS["temperature"],
+                "presence_penalty": VLLM_BENCHMARK_REQUEST_PARAMETERS[
+                    "presence_penalty"
+                ],
                 "include_reasoning": True,
                 "chat_template_kwargs": {"enable_thinking": True},
             },
@@ -219,7 +229,7 @@ def _build_vllm_command(
         "run",
         "--env-file",
         ".env",
-        "vllm",
+        str(PROJECT_BIN_DIR / "vllm"),
         "serve",
         base_model_name,
         "--host",

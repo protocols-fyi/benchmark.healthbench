@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+DEFAULT_VLLM_BIN="$SCRIPT_DIR/../../train.healthbench/.venv/bin/vllm"
+VLLM_BIN_PATH="${VLLM_BIN:-$DEFAULT_VLLM_BIN}"
+
+if [[ ! -x "$VLLM_BIN_PATH" ]]; then
+  echo "Missing executable vLLM launcher: $VLLM_BIN_PATH" >&2
+  echo "Set VLLM_BIN to a working vLLM executable path." >&2
+  exit 1
+fi
+
+export PATH="$(dirname -- "$VLLM_BIN_PATH"):$PATH"
+exec "$VLLM_BIN_PATH" "$@"
