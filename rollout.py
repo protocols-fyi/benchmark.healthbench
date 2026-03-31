@@ -9,7 +9,13 @@ import random
 import httpx
 from models.anthropic import ask_bedrock
 
-from config import AWS_BEDROCK_SUPPORTED_MODEL_IDS, DEFAULT_VLLM_BASE_URL
+from config import (
+    AWS_BEDROCK_SUPPORTED_MODEL_IDS,
+    FOCUS_METRIC_NAME,
+    PROMPT_SAMPLE_SEED,
+    REQUIRED_CASE_TAG,
+    VLLM_BASE_URL,
+)
 from db import BenchmarkStore, StoredCase, StoredModel, StoredSession
 from entities import (
     BenchmarkRuntime,
@@ -33,11 +39,6 @@ from models.openai import (
 from models.qwen import Conversation, generate_vllm_chat_completion
 
 logger = logging.getLogger(__name__)
-
-PROMPT_SAMPLE_SEED = 0
-REQUIRED_CASE_TAG = "physician_agreed_category:not-enough-context"
-FOCUS_METRIC_NAME = "axis:context_awareness"
-VLLM_BASE_URL = DEFAULT_VLLM_BASE_URL
 
 
 def _render_question(case: Case) -> str:
