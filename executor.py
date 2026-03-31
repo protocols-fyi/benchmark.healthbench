@@ -193,77 +193,80 @@ async def execute(
     )
     db.conn.commit()
     try:
-        tasks = [
-            _execute_case(
-                target_model=target_model,
-                case=case,
-                concurrency_limiter=concurrency_limiter,
+        pending_tasks: dict[asyncio.Task[Grade], tuple[Case, int]] = {}
+        for case in cases:
+            for rollout_index in range(rollout_size):
+                task = asyncio.create_task(
+                    _execute_case(
+                        target_model=target_model,
+                        case=case,
+                        concurrency_limiter=concurrency_limiter,
+                    )
+                )
+                pending_tasks[task] = (case, rollout_index)
+        while pending_tasks:
+            done_tasks, _ = await asyncio.wait(
+                pending_tasks,
+                return_when=asyncio.FIRST_COMPLETED,
             )
-            for case in cases
-            for _ in range(rollout_size)
-        ]
-        task_keys = [
-            (case, rollout_index)
-            for case in cases
-            for rollout_index in range(rollout_size)
-        ]
-        for task_key, result in zip(
-            task_keys,
-            await asyncio.gather(*tasks, return_exceptions=True),
-            strict=True,
-        ):
-            case, rollout_index = task_key
-            if isinstance(result, BaseException):
-                logger.error(
-                    "Benchmark rollout failed | backend=%s | prompt_id=%s | "
-                    "rollout_index=%d | question=%s | error_type=%s | error=%s",
+            wrote_sessions = False
+            for task in done_tasks:
+                case, rollout_index = pending_tasks.pop(task)
+                try:
+                    result = task.result()
+                except BaseException as error:
+                    logger.error(
+                        "Benchmark rollout failed | backend=%s | prompt_id=%s | "
+                        "rollout_index=%d | question=%s | error_type=%s | error=%s",
+                        backend,
+                        case.prompt_id,
+                        rollout_index,
+                        case.question,
+                        type(error).__name__,
+                        error,
+                    )
+                    failure_count += 1
+                    continue
+
+                score = 1.0 if result.criteria_met else 0.0
+                db["sessions"].insert(
+                    {
+                        "model_id": target_model.model_id,
+                        "prompt_id": result.prompt_id,
+                        "rollout_index": rollout_index,
+                        "model_response": result.model_response,
+                        "grader_response_json": result.grader_response_json,
+                        "grader_explanation": result.grader_explanation,
+                        "criteria_met": int(result.criteria_met),
+                        "score": score,
+                        "input_token_count": result.input_token_count,
+                        "cached_input_token_count": result.cached_input_token_count,
+                        "output_token_count": result.output_token_count,
+                    }
+                )
+                wrote_sessions = True
+                results[result.prompt_id].append(score)
+                logger.info(
+                    "Completed benchmark rollout | backend=%s | model_id=%s | "
+                    "prompt_id=%s | rollout_index=%d | question=%s | model_response=%s | "
+                    "criteria_met=%s | score=%.1f | grader_explanation=%s | "
+                    "input_token_count=%d | cached_input_token_count=%d | "
+                    "output_token_count=%d",
                     backend,
-                    case.prompt_id,
+                    target_model.model_id,
+                    result.prompt_id,
                     rollout_index,
                     case.question,
-                    type(result).__name__,
-                    result,
+                    result.model_response,
+                    result.criteria_met,
+                    score,
+                    result.grader_explanation,
+                    result.input_token_count,
+                    result.cached_input_token_count,
+                    result.output_token_count,
                 )
-                failure_count += 1
-                continue
-
-            score = 1.0 if result.criteria_met else 0.0
-            db["sessions"].insert(
-                {
-                    "model_id": target_model.model_id,
-                    "prompt_id": result.prompt_id,
-                    "rollout_index": rollout_index,
-                    "model_response": result.model_response,
-                    "grader_response_json": result.grader_response_json,
-                    "grader_explanation": result.grader_explanation,
-                    "criteria_met": int(result.criteria_met),
-                    "score": score,
-                    "input_token_count": result.input_token_count,
-                    "cached_input_token_count": result.cached_input_token_count,
-                    "output_token_count": result.output_token_count,
-                }
-            )
-            results[result.prompt_id].append(score)
-            logger.info(
-                "Completed benchmark rollout | backend=%s | model_id=%s | "
-                "prompt_id=%s | rollout_index=%d | question=%s | model_response=%s | "
-                "criteria_met=%s | score=%.1f | grader_explanation=%s | "
-                "input_token_count=%d | cached_input_token_count=%d | "
-                "output_token_count=%d",
-                backend,
-                target_model.model_id,
-                result.prompt_id,
-                rollout_index,
-                case.question,
-                result.model_response,
-                result.criteria_met,
-                score,
-                result.grader_explanation,
-                result.input_token_count,
-                result.cached_input_token_count,
-                result.output_token_count,
-            )
-        db.conn.commit()
+            if wrote_sessions:
+                db.conn.commit()
     finally:
         db.conn.close()
     if failure_count > 0:
