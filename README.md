@@ -20,3 +20,16 @@ For the grader:
 ```bash
 uv run --env-file .env python grader.py
 ```
+
+## Browse Stored Results
+
+Run the local FastHTML viewer against an existing benchmark database:
+
+```bash
+uv run --env-file .env python results_browser.py --results-db ./results.sqlite3
+uv run --env-file .env python results_browser.py --results-db ./run/main.all.sqlite3 --port 8080
+```
+
+The viewer is read-only. It lists models, cases, and recent rollouts, and each
+rollout page reconstructs the full benchmark message sequence plus the stored
+grader output.
