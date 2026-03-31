@@ -7,9 +7,6 @@ CREATE TABLE IF NOT EXISTS cases (
     line_number INTEGER NOT NULL UNIQUE CHECK (line_number > 0),
     question TEXT NOT NULL,
     raw_json TEXT NOT NULL CHECK (json_valid(raw_json)),
-    ideal_completions_json TEXT CHECK (
-        ideal_completions_json IS NULL OR json_valid(ideal_completions_json)
-    ),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
