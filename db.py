@@ -9,6 +9,15 @@ from typing import Literal
 from pydantic import field_validator
 
 from entities import StrictModel
+from validation import (
+    require_float_in_range,
+    require_int_choice,
+    require_non_negative_int,
+    require_positive_int,
+    strip_and_require_non_empty,
+    strip_optional_non_empty,
+    strip_string,
+)
 
 SCHEMA_PATH = Path(__file__).resolve().with_name("db.sql")
 
@@ -22,16 +31,19 @@ class StoredCase(StrictModel):
 
     @field_validator("prompt_id", "question", "raw_json")
     @classmethod
-    def validate_non_empty_strings(cls, value: str) -> str:
-        value = value.strip()
-        assert value, "stored case string fields must be non-empty."
-        return value
+    def validate_stored_case_strings(cls, value: str) -> str:
+        return strip_and_require_non_empty(
+            value,
+            message="stored case string fields must be non-empty.",
+        )
 
     @field_validator("line_number")
     @classmethod
-    def validate_line_number(cls, value: int) -> int:
-        assert value > 0, "line_number must be > 0."
-        return value
+    def validate_stored_case_line_number(cls, value: int) -> int:
+        return require_positive_int(
+            value,
+            message="line_number must be > 0.",
+        )
 
 
 class StoredModel(StrictModel):
@@ -45,10 +57,11 @@ class StoredModel(StrictModel):
 
     @field_validator("model_id", "display_name")
     @classmethod
-    def validate_required_strings(cls, value: str) -> str:
-        value = value.strip()
-        assert value, "stored model string fields must be non-empty."
-        return value
+    def validate_stored_model_strings(cls, value: str) -> str:
+        return strip_and_require_non_empty(
+            value,
+            message="stored model string fields must be non-empty.",
+        )
 
     @field_validator(
         "checkpoint_path",
@@ -56,12 +69,14 @@ class StoredModel(StrictModel):
         "serving_config_json",
     )
     @classmethod
-    def validate_optional_strings(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        value = value.strip()
-        assert value, "stored model optional string fields must be non-empty when set."
-        return value
+    def validate_stored_model_optional_strings(
+        cls,
+        value: str | None,
+    ) -> str | None:
+        return strip_optional_non_empty(
+            value,
+            message="stored model optional string fields must be non-empty when set.",
+        )
 
 
 class StoredSession(StrictModel):
@@ -84,33 +99,43 @@ class StoredSession(StrictModel):
         "grader_response_json",
     )
     @classmethod
-    def validate_non_empty_strings(cls, value: str) -> str:
-        value = value.strip()
-        assert value, "stored session string fields must be non-empty."
-        return value
+    def validate_stored_session_strings(cls, value: str) -> str:
+        return strip_and_require_non_empty(
+            value,
+            message="stored session string fields must be non-empty.",
+        )
 
     @field_validator("grader_explanation")
     @classmethod
-    def validate_grader_explanation(cls, value: str) -> str:
-        return value.strip()
+    def normalize_grader_explanation(cls, value: str) -> str:
+        return strip_string(value)
 
     @field_validator("rollout_index")
     @classmethod
-    def validate_rollout_index(cls, value: int) -> int:
-        assert value >= 0, "rollout_index must be >= 0."
-        return value
+    def validate_session_rollout_index(cls, value: int) -> int:
+        return require_non_negative_int(
+            value,
+            message="rollout_index must be >= 0.",
+        )
 
     @field_validator("criteria_met")
     @classmethod
-    def validate_criteria_met(cls, value: int) -> int:
-        assert value in {0, 1}, "criteria_met must be 0 or 1."
-        return value
+    def validate_session_criteria_met(cls, value: int) -> int:
+        return require_int_choice(
+            value,
+            choices=frozenset({0, 1}),
+            message="criteria_met must be 0 or 1.",
+        )
 
     @field_validator("score")
     @classmethod
-    def validate_score(cls, value: float) -> float:
-        assert 0.0 <= value <= 1.0, "score must be in [0, 1]."
-        return value
+    def validate_session_score(cls, value: float) -> float:
+        return require_float_in_range(
+            value,
+            minimum=0.0,
+            maximum=1.0,
+            message="score must be in [0, 1].",
+        )
 
     @field_validator(
         "input_token_count",
@@ -118,11 +143,13 @@ class StoredSession(StrictModel):
         "output_token_count",
     )
     @classmethod
-    def validate_optional_token_counts(cls, value: int | None) -> int | None:
+    def validate_session_token_counts(cls, value: int | None) -> int | None:
         if value is None:
             return None
-        assert value >= 0, "token counts must be non-negative when set."
-        return value
+        return require_non_negative_int(
+            value,
+            message="token counts must be non-negative when set.",
+        )
 
 
 class BenchmarkStore:
