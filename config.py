@@ -47,9 +47,9 @@ DEFAULT_VLLM_GPU_MEMORY_UTILIZATION = 0.7
 DEFAULT_VLLM_KV_CACHE_DTYPE = "fp8"
 
 AWS_BEDROCK_SUPPORTED_MODEL_IDS = {
-    "anthropic-haiku-4.5": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
-    "anthropic-sonnet-4.6": "us.anthropic.claude-sonnet-4-6",
-    "anthropic-opus-4.6": "us.anthropic.claude-opus-4-6-v1",
+    "anthropic-haiku-4.5": "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "anthropic-sonnet-4.6": "global.anthropic.claude-sonnet-4-6",
+    "anthropic-opus-4.6": "global.anthropic.claude-opus-4-6-v1",
 }
 NOISY_LOGGERS = (
     "anthropic",
