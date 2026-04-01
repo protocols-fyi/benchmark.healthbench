@@ -1,1 +1,2 @@
 .art/**/*.safetensors filter=lfs diff=lfs merge=lfs -text
+run/main.all.sqlite3 filter=lfs diff=lfs merge=lfs -text

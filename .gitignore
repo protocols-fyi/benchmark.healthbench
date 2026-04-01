@@ -210,3 +210,4 @@ __marimo__/
 .vscode/
 run/*.log
 run/*.sqlite3
+!run/main.all.sqlite3
