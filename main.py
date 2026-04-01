@@ -170,7 +170,7 @@ async def run_case(
         for logger_name in NOISY_LOGGERS:
             logging.getLogger(logger_name).setLevel(logging.WARNING)
         logger.info(
-            "Running benchmark on AWS Bedrock | model=%s | concurrency=4",
+            "Running benchmark on AWS Bedrock | model=%s | concurrency=1",
             AWS_BEDROCK_SUPPORTED_MODEL_IDS[model_name],
         )
         run_experiment_id = f"{experiment_id}-{model_name}"

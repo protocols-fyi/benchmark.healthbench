@@ -167,7 +167,7 @@ async def execute(
     results: dict[str, list[float]] = defaultdict(list)
     failure_count = 0
     backend = target_model.backend
-    concurrency_limit = 4
+    concurrency_limit = 1 if backend == "aws-bedrock" else 4
     concurrency_limiter = asyncio.Semaphore(concurrency_limit)
     db = open_benchmark_db(results_db_path)
     for case in cases:
