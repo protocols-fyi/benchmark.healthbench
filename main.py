@@ -4,6 +4,7 @@ or AWS Bedrock.
 Usage:
     uv run --env-file .env main.py [--model ...] [--checkpoint ...] [--case-count N] [--rollout-count N]
     uv run --env-file .env main.py --model gpt-4.1 --case-count 1 --rollout-count 2 --results-db ./results.sqlite3
+    uv run --env-file .env main.py --model qwen3-8b-context-seeking-0268 --case-count 1 --rollout-count 2 --results-db ./results.sqlite3
     uv run --env-file .env main.py --model all --case-count 1 --rollout-count 2 --results-db ./results.sqlite3
 
 The benchmark runs the `physician_agreed_category:not-enough-context` prompts
@@ -27,6 +28,8 @@ import click
 from config import (
     AWS_BEDROCK_SUPPORTED_MODEL_IDS,
     DEFAULT_BASE_MODEL,
+    DEFAULT_LOCAL_CHECKPOINT_MODEL_ID,
+    DEFAULT_LOCAL_CHECKPOINT_PATH,
     DEFAULT_ROLLOUT_COUNT,
     DEFAULT_UNSLOTH_VLLM_STANDBY,
     DEFAULT_VLLM_BASE_URL,
@@ -54,6 +57,7 @@ ALL_MODEL_OPTION = "all"
 SUPPORTED_NAMED_MODEL_IDS = (
     "gpt-4.1",
     "qwen3-8b",
+    DEFAULT_LOCAL_CHECKPOINT_MODEL_ID,
     *sorted(AWS_BEDROCK_SUPPORTED_MODEL_IDS),
 )
 MODEL_OPTION_HELP = (
@@ -109,19 +113,38 @@ async def run_case(
     repo_root: Path,
     results_db_path: Path,
 ) -> tuple[str, dict[str, list[float]]]:
+    named_local_checkpoint = checkpoint is None and (
+        model_name == DEFAULT_LOCAL_CHECKPOINT_MODEL_ID
+    )
+    resolved_checkpoint = (
+        DEFAULT_LOCAL_CHECKPOINT_PATH if named_local_checkpoint else checkpoint
+    )
+    served_model_name = (
+        DEFAULT_LOCAL_CHECKPOINT_MODEL_ID if named_local_checkpoint else None
+    )
     is_anthropic = model_name is not None and model_name.startswith("anthropic-")
     is_azure_openai = is_azure_openai_model(model_name)
     resolved_rollout_count = (
         DEFAULT_ROLLOUT_COUNT if rollout_count is None else rollout_count
     )
-    local_checkpoint = None if (is_anthropic or is_azure_openai) else checkpoint
+    local_checkpoint = (
+        None if (is_anthropic or is_azure_openai) else resolved_checkpoint
+    )
     if local_checkpoint is not None and model_name is not None:
-        logger.debug(
-            "Ignoring --model because --checkpoint was provided | model=%s | "
-            "checkpoint=%s",
-            model_name,
-            str(local_checkpoint.expanduser().resolve()),
-        )
+        if named_local_checkpoint:
+            logger.info(
+                "Running benchmark on repo-local checkpoint | model=%s | "
+                "checkpoint=%s",
+                DEFAULT_LOCAL_CHECKPOINT_MODEL_ID,
+                str(local_checkpoint.expanduser().resolve()),
+            )
+        else:
+            logger.debug(
+                "Ignoring --model because --checkpoint was provided | model=%s | "
+                "checkpoint=%s",
+                model_name,
+                str(local_checkpoint.expanduser().resolve()),
+            )
     local_model_name = (
         DEFAULT_BASE_MODEL
         if (
@@ -181,6 +204,7 @@ async def run_case(
             repo_root=repo_root,
             base_model=local_model_name,
             checkpoint=local_checkpoint,
+            served_model_name=served_model_name,
         )
         assert base_url == DEFAULT_VLLM_BASE_URL, (
             "Expected vLLM server at "

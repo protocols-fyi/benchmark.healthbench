@@ -6,6 +6,17 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 PROJECT_BIN_DIR = PROJECT_ROOT / "bin"
+PROJECT_ART_DIR = PROJECT_ROOT / ".art"
+
+DEFAULT_LOCAL_CHECKPOINT_MODEL_ID = "qwen3-8b-context-seeking-0268"
+DEFAULT_LOCAL_CHECKPOINT_PATH = (
+    PROJECT_ART_DIR
+    / "healthbench"
+    / "models"
+    / "2026-03-25_qwen3-8b_context-seeking-consensus-sft-thinking_overfit-v1"
+    / "checkpoints"
+    / "0268"
+)
 
 DEFAULT_MODEL_ASK_QUESTION = "what's the main argument of Sutton's Bitter Lessons?"
 DEFAULT_MODEL_ASK_SYSTEM_PROMPT = "You are a helpful assistant."

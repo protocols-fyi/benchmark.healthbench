@@ -273,8 +273,12 @@ async def ensure_vllm_server(
     repo_root: Path,
     base_model: str,
     checkpoint: Path | None,
+    served_model_name: str | None = None,
 ) -> tuple[str, str]:
     if checkpoint is None:
+        assert served_model_name is None, (
+            "served_model_name requires a checkpoint-backed vLLM run."
+        )
         base_model_name = resolve_model_reference(base_model)
         request_model_name = base_model_name
         checkpoint_path = None
@@ -308,7 +312,11 @@ async def ensure_vllm_server(
             raw_base_model_name,
             config_key="checkpoint.adapter_config.json base_model_name_or_path",
         )
-        request_model_name = _checkpoint_alias(checkpoint_path)
+        request_model_name = (
+            served_model_name
+            if served_model_name is not None
+            else _checkpoint_alias(checkpoint_path)
+        )
 
     served_models = await _fetch_served_model_names(DEFAULT_VLLM_BASE_URL)
     if served_models is not None:
