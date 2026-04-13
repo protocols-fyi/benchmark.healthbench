@@ -22,6 +22,13 @@ For the grader:
 uv run --env-file .env python grader.py
 ```
 
+To export the paper-style worst-at-k curve as CSV for Excel:
+
+```bash
+uv run python worst_at_k.py --results-db ./results.sqlite3 > ./worst_at_k.csv
+uv run python worst_at_k.py --results-db ./results.sqlite3 --model gpt-4.1
+```
+
 ## Browse Stored Results
 
 Run the local FastHTML viewer against an existing benchmark database:
